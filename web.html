@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Edge Node Scheduler</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>Edge Node Scheduler</h1>
+  <button id="startBtn">Start</button>
+  <div id="nodeInfo"></div>
+
+  <h3>Live Preview (raw webcam):</h3>
+  <video id="inputVideo" autoplay playsinline width="480" height="360"></video>
+
+  <h3>Processed Output:</h3>
+  <video id="processedVideo" autoplay playsinline width="480" height="360"></video>
+
+  <canvas id="canvas" style="display: none;"></canvas>
+
+  <script>
+    const socket = io("http://localhost:5000");  // or scheduler IP
+    let bestNodeSocket = null;
+    let stream, canvas, ctx;
+
+    document.getElementById("startBtn").addEventListener("click", async () => {
+      socket.emit("start");
+    });
+
+    socket.on("connect", () => {
+      console.log("Connected to scheduler");
+    });
+
+    socket.on("best_node", async (data) => {
+      document.getElementById("nodeInfo").innerHTML = `
+        <b>Best Node:</b> ${data.node_id}<br>
+        <b>CPU Usage:</b> ${data.cpu}%<br>
+        <b>Memory Usage:</b> ${data.memory}%<br>
+        <b>IP Address:</b> ${data.ip}
+      `;
+
+      bestNodeSocket = io(`http://${data.ip}:6000`);
+
+      bestNodeSocket.on("connect", async () => {
+        console.log("Connected to edge node");
+
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } });
+        const inputVideo = document.getElementById("inputVideo");
+        inputVideo.srcObject = stream;
+        inputVideo.play();
+
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+        canvas.width = 480;
+        canvas.height = 360;
+
+        // Send frames at interval
+        setInterval(() => {
+          ctx.drawImage(inputVideo, 0, 0, 480, 360);
+          const frame = canvas.toDataURL("image/jpeg", 0.6);
+          bestNodeSocket.emit("input_frame", frame);
+        }, 100);
+
+        // Receive processed frames
+        bestNodeSocket.on("output_frame", (data) => {
+          document.getElementById("processedVideo").src = data;
+        });
+      });
+    });
+  </script>
+</body>
+</html>
